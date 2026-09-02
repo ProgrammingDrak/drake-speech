@@ -1,21 +1,30 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const serviceDir = resolve(scriptDir, "../service");
 const outputPath = resolve(scriptDir, "../THIRD-PARTY-LICENSES.txt.gz");
-const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--locked", "--format-version", "1"], {
-  cwd: serviceDir,
-  encoding: "utf8",
-  maxBuffer: 10 * 1024 * 1024
-}));
+const targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"];
+const metadataByTarget = targets.map((target) => JSON.parse(execFileSync(
+  "cargo",
+  ["metadata", "--locked", "--format-version", "1", "--filter-platform", target],
+  { cwd: serviceDir, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }
+)));
+const metadata = metadataByTarget[0];
+const shippedPackageIds = new Set(metadataByTarget.flatMap((targetMetadata) => (
+  targetMetadata.resolve.nodes.map((node) => node.id)
+)));
+const supplementalLicenses = new Map([
+  ["dasp_sample@0.11.0", [resolve(scriptDir, "upstream/dasp_sample-0.11.0-LICENSE-MIT.txt")]],
+  ["realfft@3.5.0", [resolve(scriptDir, "upstream/realfft-3.5.0-LICENSE-MIT.txt")]]
+]);
 
 const packages = metadata.packages
-  .filter((entry) => entry.name !== "drake-speech-service")
+  .filter((entry) => entry.name !== "drake-speech-service" && shippedPackageIds.has(entry.id))
   .sort((left, right) => `${left.name}@${left.version}`.localeCompare(`${right.name}@${right.version}`));
 const sections = [
   "Drake Speech native third-party licenses",
@@ -25,46 +34,28 @@ const sections = [
   ""
 ];
 const documents = new Map();
-const packageRecords = [];
-const standardDocuments = new Map();
 
 for (const entry of packages) {
   const packageDir = dirname(entry.manifest_path);
-  const licenseFiles = readdirSync(packageDir)
+  const licenseFiles = [...readdirSync(packageDir)
     .filter((name) => /^(license|copying|copyright|notice)([._-].*)?$/i.test(name))
     .map((name) => join(packageDir, name))
     .filter((path) => statSync(path).isFile())
-    .sort();
+    .sort(), ...(supplementalLicenses.get(`${entry.name}@${entry.version}`) ?? [])];
+  if (!licenseFiles.length) {
+    throw new Error(`No license document is available for ${entry.name} ${entry.version}.`);
+  }
   const documentIds = [];
   for (const path of licenseFiles) {
     const content = readFileSync(path, "utf8").trimEnd();
     const id = createHash("sha256").update(content).digest("hex").slice(0, 12);
     documentIds.push(id);
     if (!documents.has(id)) documents.set(id, content);
-    const filename = basename(path).toLowerCase();
-    if (/^license[-_.]?mit$/.test(filename)) standardDocuments.set("MIT", id);
-    if (/^license[-_.]?apache(?:[-_.]?2(?:\.0)?)?$/.test(filename)) standardDocuments.set("Apache-2.0", id);
-  }
-  packageRecords.push({ entry, documentIds });
-}
-
-for (const { entry, documentIds: packagedDocumentIds } of packageRecords) {
-  const documentIds = [...packagedDocumentIds];
-  let selectedFallback = null;
-  if (!documentIds.length) {
-    if (/\bMIT\b/.test(entry.license ?? "")) selectedFallback = "MIT";
-    else if (/\bApache-2\.0\b/.test(entry.license ?? "")) selectedFallback = "Apache-2.0";
-    const fallbackId = selectedFallback ? standardDocuments.get(selectedFallback) : null;
-    if (!fallbackId) {
-      throw new Error(`No license document is available for ${entry.name} ${entry.version}.`);
-    }
-    documentIds.push(fallbackId);
   }
   sections.push(`${entry.name} ${entry.version}`);
   sections.push(`  Declared license: ${entry.license ?? "NOASSERTION"}`);
   sections.push(`  Authors: ${entry.authors.join(", ") || "unknown"}`);
   sections.push(`  Source: ${entry.repository ?? entry.homepage ?? entry.source ?? "unknown"}`);
-  if (selectedFallback) sections.push(`  Selected fallback license: ${selectedFallback}`);
   sections.push(`  License documents: ${documentIds.join(", ")}`);
   sections.push("");
 }

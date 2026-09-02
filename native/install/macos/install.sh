@@ -12,7 +12,7 @@ chmod 700 "$install_dir"
 cp "$binary" "$install_dir/drake-speech-service"
 cp "$native_dir/../LICENSE" "$install_dir/LICENSE"
 cp "$native_dir/../NOTICE.md" "$install_dir/NOTICE.md"
-cp "$native_dir/THIRD-PARTY-LICENSES.txt" "$install_dir/THIRD-PARTY-LICENSES.txt"
+gzip -dc "$native_dir/THIRD-PARTY-LICENSES.txt.gz" > "$install_dir/THIRD-PARTY-LICENSES.txt"
 chmod 700 "$install_dir/drake-speech-service"
 chmod 600 "$install_dir/LICENSE" "$install_dir/NOTICE.md" "$install_dir/THIRD-PARTY-LICENSES.txt"
 

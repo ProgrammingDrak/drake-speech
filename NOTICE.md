@@ -14,7 +14,7 @@ The native service uses `parakeet-rs` under MIT or Apache-2.0.
 - Upstream: `https://github.com/altunenes/parakeet-rs`
 - Pinned commit: `1d6ffeae1b8641f497e4ef9a5e9fff37aa7a4181`
 
-Native installers include `native/THIRD-PARTY-LICENSES.txt` beside the binary.
+Native installers expand `native/THIRD-PARTY-LICENSES.txt.gz` beside the binary.
 
 Parakeet Realtime EOU 120M v1 weights use NVIDIA's Open Model License.
 

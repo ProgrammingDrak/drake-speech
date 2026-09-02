@@ -87,3 +87,64 @@ test("ends a silent session after its lead-in timeout", async () => {
   await session.start();
   assert.equal(await reason, "lead-in");
 });
+
+test("keeps timeout defaults when an adapter passes undefined", async () => {
+  const runtime = new BrowserSpeechToTextRuntime({ supported: true, storage: new MemoryStorage(), engineFactory: () => new FakeEngine() });
+  await runtime.prepare();
+  const session = runtime.createSession({ inputMode: "pcm", leadInTimeoutMs: undefined, pollIntervalMs: 1 });
+  let silenceCount = 0;
+  session.on("silence", () => silenceCount += 1);
+  await session.start();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(silenceCount, 0);
+  await session.cancel();
+});
+
+test("stop drains queued audio and finalizes once", async () => {
+  let releasePush;
+  class SlowEngine extends FakeEngine {
+    pushes = 0;
+    async push() {
+      this.pushes += 1;
+      await new Promise((resolve) => { releasePush = resolve; });
+      return "To be";
+    }
+  }
+  const engine = new SlowEngine();
+  const runtime = new BrowserSpeechToTextRuntime({ supported: true, storage: new MemoryStorage(), engineFactory: () => engine });
+  await runtime.prepare();
+  const session = runtime.createSession({ inputMode: "pcm" });
+  let finals = 0;
+  session.on("final", () => finals += 1);
+  await session.start();
+  const pushing = session.push(new Float32Array([0.25, -0.25]));
+  await new Promise((resolve) => setImmediate(resolve));
+  const firstStop = session.stop();
+  const secondStop = session.stop();
+  releasePush();
+  await Promise.all([pushing, firstStop, secondStop]);
+  assert.equal(engine.pushes, 1);
+  assert.equal(finals, 1);
+});
+
+test("bounds queued audio when inference falls behind", async () => {
+  let releasePush;
+  class SlowEngine extends FakeEngine {
+    async push() {
+      await new Promise((resolve) => { releasePush = resolve; });
+      return "";
+    }
+  }
+  const runtime = new BrowserSpeechToTextRuntime({ supported: true, storage: new MemoryStorage(), engineFactory: () => new SlowEngine() });
+  await runtime.prepare();
+  const session = runtime.createSession({ inputMode: "pcm", maxPendingSamples: 4 });
+  const errors = [];
+  session.on("error", (error) => errors.push(error.code));
+  await session.start();
+  const first = session.push(new Float32Array(4));
+  await new Promise((resolve) => setImmediate(resolve));
+  await session.push(new Float32Array(1));
+  releasePush();
+  await first;
+  assert.deepEqual(errors, ["audio_backpressure"]);
+});

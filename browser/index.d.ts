@@ -26,6 +26,7 @@ export interface SessionOptions {
   silenceTimeoutMs?: number;
   activityThreshold?: number;
   pollIntervalMs?: number;
+  maxPendingSamples?: number;
 }
 export interface SessionEvents {
   partial: { text: string };

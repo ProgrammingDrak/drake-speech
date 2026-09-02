@@ -82,6 +82,32 @@ test("rejects interrupted and missing downloads without caching them", async () 
   }
 });
 
+test("stops downloads that exceed the pinned size", async () => {
+  const previous = { caches: globalThis.caches, fetch: globalThis.fetch };
+  let cancelled = false;
+  globalThis.caches = { open: async () => ({ match: async () => null, put: async () => undefined }) };
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: new Headers(),
+    body: {
+      cancel: async () => { cancelled = true; },
+      getReader: () => ({
+        read: async () => ({ done: false, value: new Uint8Array(9) }),
+        cancel: async () => { cancelled = true; }
+      })
+    }
+  });
+  try {
+    await assert.rejects(
+      fetchCached("https://example.test/oversized", undefined, "model", { expectedBytes: 8 }),
+      /model_size_exceeded/
+    );
+    assert.equal(cancelled, true);
+  } finally {
+    restoreGlobals(previous);
+  }
+});
+
 function restoreGlobals(previous) {
   for (const [key, value] of Object.entries(previous)) {
     if (value === undefined) delete globalThis[key];

@@ -102,7 +102,7 @@ struct Session {
     mode: InputMode,
     lead_in: Duration,
     silence: Duration,
-    tx: Option<mpsc::Sender<WorkerCommand>>,
+    tx: Option<mpsc::SyncSender<WorkerCommand>>,
     pending_samples: Option<usize>,
 }
 
@@ -226,7 +226,19 @@ fn handle_connection(stream: LocalSocketStream, state: Arc<SharedState>) -> Resu
                 }
                 let samples = bytes_to_f32(&frame.1);
                 if let Some(tx) = &active.tx {
-                    let _ = tx.send(WorkerCommand::Audio(samples));
+                    match tx.try_send(WorkerCommand::Audio(samples)) {
+                        Ok(()) => {}
+                        Err(mpsc::TrySendError::Full(_)) => send_event(
+                            &writer,
+                            "error",
+                            json!({ "sessionId": active.id, "code": "audio_backpressure", "message": "Transcription could not keep up with PCM input." }),
+                        )?,
+                        Err(mpsc::TrySendError::Disconnected(_)) => send_event(
+                            &writer,
+                            "error",
+                            json!({ "sessionId": active.id, "code": "session_closed", "message": "The transcription session ended." }),
+                        )?,
+                    }
                 }
             }
             _ => send_event(
@@ -373,7 +385,7 @@ fn handle_request(
                 .handle
                 .clone()
                 .context("model missing after preparation")?;
-            let (tx, rx) = mpsc::channel();
+            let (tx, rx) = mpsc::sync_channel(64);
             active.tx = Some(tx.clone());
             let worker = WorkerConfig {
                 id: active.id.clone(),
@@ -440,7 +452,7 @@ fn run_session(
     config: WorkerConfig,
     handle: ParakeetEOUHandle,
     rx: mpsc::Receiver<WorkerCommand>,
-    tx: mpsc::Sender<WorkerCommand>,
+    tx: mpsc::SyncSender<WorkerCommand>,
     writer: Writer,
     state: Arc<SharedState>,
 ) {
@@ -462,7 +474,7 @@ fn run_session_inner(
     config: &WorkerConfig,
     handle: ParakeetEOUHandle,
     rx: mpsc::Receiver<WorkerCommand>,
-    tx: mpsc::Sender<WorkerCommand>,
+    tx: mpsc::SyncSender<WorkerCommand>,
     writer: &Writer,
 ) -> Result<()> {
     let mut model = ParakeetEOU::from_shared(&handle);
@@ -583,7 +595,7 @@ fn transcribe_chunk(
     Ok(endpoint)
 }
 
-fn start_microphone(tx: mpsc::Sender<WorkerCommand>) -> Result<cpal::Stream> {
+fn start_microphone(tx: mpsc::SyncSender<WorkerCommand>) -> Result<cpal::Stream> {
     let device = cpal::default_host()
         .default_input_device()
         .context("no microphone is available")?;
@@ -637,7 +649,7 @@ fn send_audio(
     samples: impl Iterator<Item = f32>,
     channels: usize,
     sample_rate: u32,
-    tx: &mpsc::Sender<WorkerCommand>,
+    tx: &mpsc::SyncSender<WorkerCommand>,
 ) {
     let raw: Vec<f32> = samples.collect();
     let mono: Vec<f32> = raw
@@ -649,7 +661,7 @@ fn send_audio(
     } else {
         resample_linear(&mono, sample_rate, 16_000)
     };
-    let _ = tx.send(WorkerCommand::Audio(output));
+    let _ = tx.try_send(WorkerCommand::Audio(output));
 }
 
 fn resample_linear(input: &[f32], from: u32, to: u32) -> Vec<f32> {
@@ -728,6 +740,17 @@ fn download_file(
         .get(url)
         .send()?
         .error_for_status()?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > file.bytes)
+    {
+        bail!(
+            "model_size_exceeded:{}:{}:{}",
+            file.name,
+            response.content_length().unwrap_or_default(),
+            file.bytes
+        );
+    }
     let part = destination.with_extension(format!(
         "{}.part",
         destination
@@ -750,6 +773,16 @@ fn download_file(
         output.write_all(&buffer[..count])?;
         hash.update(&buffer[..count]);
         downloaded += count as u64;
+        if downloaded > file.bytes {
+            drop(output);
+            fs::remove_file(&part).ok();
+            bail!(
+                "model_size_exceeded:{}:{}:{}",
+                file.name,
+                downloaded,
+                file.bytes
+            );
+        }
         if let Some(writer) = writer {
             send_event(
                 writer,

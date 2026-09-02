@@ -99,7 +99,7 @@ export class NativeSpeechToTextRuntime {
     });
     this.#socket.on("data", (chunk) => this.#receive(chunk));
     this.#socket.on("close", () => {
-      this.#socket = null;
+      this.#disconnect(new NativeSpeechError("disconnected", "The speech service disconnected."));
     });
     await this.#requestWithoutConnect("hello", { client: "drake-speech-client" });
   }
@@ -131,9 +131,18 @@ export class NativeSpeechToTextRuntime {
         }
       }
     } catch (cause) {
-      this.#emit("error", { code: cause.code ?? "protocol_error", message: cause.message });
-      this.#socket?.destroy();
+      const socket = this.#socket;
+      this.#disconnect(new NativeSpeechError(cause.code ?? "protocol_error", cause.message, { cause }));
+      socket?.destroy();
     }
+  }
+
+  #disconnect(error) {
+    this.#socket = null;
+    this.#decoder = new FrameDecoder();
+    for (const { reject } of this.#requests.values()) reject(error);
+    this.#requests.clear();
+    this.#emit("error", { code: error.code, message: error.message, details: error.details });
   }
 
   #emit(type, payload) {

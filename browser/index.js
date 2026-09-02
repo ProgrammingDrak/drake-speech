@@ -138,19 +138,30 @@ export class BrowserTranscriptionSession {
   #text = "";
   #state = "created";
   #queue = Promise.resolve();
+  #stopPromise = null;
+  #pendingSamples = 0;
 
   constructor(engine, micFactory, options, release) {
     this.#engine = engine;
     this.#micFactory = micFactory;
     this.#release = release;
-    this.#options = {
+    const mergedOptions = {
       language: "en",
       inputMode: "microphone",
       leadInTimeoutMs: 8000,
       silenceTimeoutMs: 2500,
       activityThreshold: 0.012,
       pollIntervalMs: 160,
+      maxPendingSamples: 80_000,
       ...options
+    };
+    this.#options = {
+      ...mergedOptions,
+      leadInTimeoutMs: mergedOptions.leadInTimeoutMs ?? 8000,
+      silenceTimeoutMs: mergedOptions.silenceTimeoutMs ?? 2500,
+      activityThreshold: mergedOptions.activityThreshold ?? 0.012,
+      pollIntervalMs: mergedOptions.pollIntervalMs ?? 160,
+      maxPendingSamples: mergedOptions.maxPendingSamples ?? 80_000
     };
     if (this.#options.language !== "en") {
       throw new SpeechRuntimeError("unsupported_language", "Version one supports English only.");
@@ -196,25 +207,29 @@ export class BrowserTranscriptionSession {
     return this.#enqueueSamples(samples);
   }
 
-  async stop() {
+  stop() {
     if (this.#state === "finished" || this.#state === "cancelled" || this.#state === "disposed") return;
+    if (this.#stopPromise) return this.#stopPromise;
     this.#state = "stopping";
     this.#stopPolling();
-    await this.#mic?.stop();
-    this.#mic = null;
-    await this.#queue;
-    try {
-      const finalText = normalizeTranscript(await this.#engine.finish());
-      if (finalText) this.#text = finalText;
-      this.#state = "finished";
-      if (this.#text) this.#emit("final", { text: this.#text });
-      else this.#emit("silence", { reason: "empty" });
-    } catch (cause) {
-      this.#state = "finished";
-      this.#emitError(cause, "inference_failed");
-    } finally {
-      this.#release();
-    }
+    this.#stopPromise = (async () => {
+      await this.#mic?.stop();
+      this.#mic = null;
+      await this.#queue;
+      try {
+        const finalText = normalizeTranscript(await this.#engine.finish());
+        if (finalText) this.#text = finalText;
+        this.#state = "finished";
+        if (this.#text) this.#emit("final", { text: this.#text });
+        else this.#emit("silence", { reason: "empty" });
+      } catch (cause) {
+        this.#state = "finished";
+        this.#emitError(cause, "inference_failed");
+      } finally {
+        this.#release();
+      }
+    })();
+    return this.#stopPromise;
   }
 
   async cancel() {
@@ -245,9 +260,16 @@ export class BrowserTranscriptionSession {
 
   #enqueueSamples(samples) {
     const input = samples instanceof Float32Array ? samples : new Float32Array(samples);
+    if (this.#pendingSamples + input.length > this.#options.maxPendingSamples) {
+      const error = new SpeechRuntimeError("audio_backpressure", "Transcription could not keep up with live audio.");
+      this.#emitError(error, error.code);
+      void this.cancel();
+      return Promise.resolve();
+    }
+    this.#pendingSamples += input.length;
     if (rms(input) >= this.#options.activityThreshold) this.#lastVoiceAt = Date.now();
     this.#queue = this.#queue.then(async () => {
-      if (this.#state !== "running") return;
+      if (!["running", "stopping"].includes(this.#state)) return;
       const text = normalizeTranscript(await this.#engine.push(input));
       this.#processedSamples += input.length;
       this.#emit("progress", { processedSeconds: this.#processedSamples / 16000 });
@@ -266,6 +288,8 @@ export class BrowserTranscriptionSession {
     }).catch((cause) => {
       this.#emitError(cause, "inference_failed");
       void this.cancel();
+    }).finally(() => {
+      this.#pendingSamples -= input.length;
     });
     return this.#queue;
   }

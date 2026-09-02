@@ -52,6 +52,10 @@ export async function fetchCached(url, onProgress, label = url, opts) {
         throw new Error(`fetch ${url} → HTML instead of a model asset (file not deployed?)`);
     }
     const total = Number(res.headers.get("content-length") || 0);
+    if (opts?.expectedBytes !== undefined && total > opts.expectedBytes) {
+        await res.body.cancel().catch(() => undefined);
+        throw new Error(`model_size_exceeded:${label}:${total}:${opts.expectedBytes}`);
+    }
     const reader = res.body.getReader();
     const chunks = [];
     let loaded = 0;
@@ -61,6 +65,10 @@ export async function fetchCached(url, onProgress, label = url, opts) {
             break;
         chunks.push(value);
         loaded += value.byteLength;
+        if (opts?.expectedBytes !== undefined && loaded > opts.expectedBytes) {
+            await reader.cancel().catch(() => undefined);
+            throw new Error(`model_size_exceeded:${label}:${loaded}:${opts.expectedBytes}`);
+        }
         onProgress?.({ file: label, phase: "download", loaded, total, fraction: total ? loaded / total : 0 });
     }
     const bytes = concat(chunks, loaded);

@@ -1,0 +1,19 @@
+param([Parameter(Mandatory=$true)][string]$Binary)
+
+$installDir = Join-Path $env:LOCALAPPDATA "Drake Speech\bin"
+$target = Join-Path $installDir "drake-speech-service.exe"
+$nativeDir = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+Copy-Item -Force $Binary $target
+Copy-Item -Force (Join-Path $nativeDir "..\LICENSE") (Join-Path $installDir "LICENSE")
+Copy-Item -Force (Join-Path $nativeDir "..\NOTICE.md") (Join-Path $installDir "NOTICE.md")
+$licenseInput = [IO.File]::OpenRead((Join-Path $nativeDir "THIRD-PARTY-LICENSES.txt.gz"))
+$licenseOutput = [IO.File]::Create((Join-Path $installDir "THIRD-PARTY-LICENSES.txt"))
+$gzip = New-Object IO.Compression.GzipStream($licenseInput, [IO.Compression.CompressionMode]::Decompress)
+$gzip.CopyTo($licenseOutput)
+$gzip.Dispose()
+$licenseOutput.Dispose()
+$licenseInput.Dispose()
+$taskName = "Drake Speech Service"
+schtasks.exe /Create /F /SC ONLOGON /TN $taskName /TR ('"' + $target + '"') | Out-Null
+Start-Process -FilePath $target

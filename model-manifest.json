@@ -1,0 +1,25 @@
+{
+  "model": "nvidia/parakeet_realtime_eou_120m-v1",
+  "license": "NVIDIA Open Model License",
+  "browser": {
+    "revision": "6c6bcda07b23fd91778062b435b1a5f2f6d07504",
+    "vocabRevision": "6d6be8e9113b4aa8ae7b4d5dfb655795c084d0c6",
+    "downloadBytes": 240453556,
+    "files": [
+      { "path": "eou/encoder-fp16.bin", "bytes": 219063296, "sha256": "590a0a673d8f40cb3fa60538f49972847c8ac0f474b7873fe5f6ccf781137bdd" },
+      { "path": "eou/encoder-fp16.manifest.json", "bytes": 39130, "sha256": "ea9bc2993d3a58bb66ffabbf4d860f901f6ee9e859d0d90e24a04c1c0aa1c6ab" },
+      { "path": "eou/decoder-fp32.bin", "bytes": 21344268, "sha256": "f627c74db4064400527937f93fb7a8b67d5ca64581baf9380ee566c1123764b2" },
+      { "path": "eou/decoder-fp32.manifest.json", "bytes": 629, "sha256": "cafda436f87e948996d15726900a75b648a0fe97e50086f1963749ea9c2b237a" },
+      { "path": "vocab.txt", "bytes": 6233, "sha256": "77c3f876cddac2d9ad82efceea38fd6acd16575e0ab54ab3396aa4621fa8ff02" }
+    ]
+  },
+  "native": {
+    "revision": "a61d2818df4659c956b9661a9447f46e98c15126",
+    "downloadBytes": 480708981,
+    "files": [
+      { "path": "realtime_eou_120m-v1-onnx/encoder.onnx", "bytes": 459341289, "sha256": "93e1f5e2efd60f305495b2ace07d2baade8e2f7ed087b847b5fa2514e138e611" },
+      { "path": "realtime_eou_120m-v1-onnx/decoder_joint.onnx", "bytes": 21347639, "sha256": "cdf95c774a2d27ec04bb0e06145c61a34dcf5639125b2833fb3ee2051845ee31" },
+      { "path": "realtime_eou_120m-v1-onnx/tokenizer.json", "bytes": 20053, "sha256": "f6b0ad8690559351fa478116fe0985a203b76f7c040f3a9381f485c99c0325f8" }
+    ]
+  }
+}

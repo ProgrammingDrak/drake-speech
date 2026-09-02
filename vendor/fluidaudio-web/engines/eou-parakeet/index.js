@@ -32,9 +32,9 @@ const WEIGHTS_REVISION = "6c6bcda07b23fd91778062b435b1a5f2f6d07504";
 const VOCAB_REVISION = "6d6be8e9113b4aa8ae7b4d5dfb655795c084d0c6";
 const FILES = {
     "eou/encoder-fp16.manifest.json": { bytes: 39130, sha256: "ea9bc2993d3a58bb66ffabbf4d860f901f6ee9e859d0d90e24a04c1c0aa1c6ab" },
-    "eou/encoder-fp16.bin": { bytes: 219063296, sha256: "e6f36c8c278143b788c70e68d7e39584557be1f9c562f2f82376df3e6174aec9" },
+    "eou/encoder-fp16.bin": { bytes: 219063296, sha256: "590a0a673d8f40cb3fa60538f49972847c8ac0f474b7873fe5f6ccf781137bdd" },
     "eou/decoder-fp32.manifest.json": { bytes: 629, sha256: "cafda436f87e948996d15726900a75b648a0fe97e50086f1963749ea9c2b237a" },
-    "eou/decoder-fp32.bin": { bytes: 21344268, sha256: "df468c5ea5879457f9ceb1f88e984290bddc05d5b3f2c8305e6b58571a707431" },
+    "eou/decoder-fp32.bin": { bytes: 21344268, sha256: "f627c74db4064400527937f93fb7a8b67d5ca64581baf9380ee566c1123764b2" },
     "vocab.txt": { bytes: 6233, sha256: "77c3f876cddac2d9ad82efceea38fd6acd16575e0ab54ab3396aa4621fa8ff02" },
 };
 const FRAME_SEC = 0.08; // 10ms mel hop × 8× subsampling

@@ -12,6 +12,7 @@ streaming mel features, WebGPU kernels, and the WASM fallback.
 Local changes:
 
 - Renamed the model cache to `drake-speech-models-v1`.
+- Corrected both binary hashes against the pinned Hugging Face LFS objects.
 - Pinned every Hugging Face revision.
 - Added exact SHA-256 and byte-count checks.
 - Removed Node-only and unrelated engine paths.

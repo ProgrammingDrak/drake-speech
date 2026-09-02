@@ -1,0 +1,39 @@
+{
+  "name": "drake-speech",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable, local-first Parakeet speech transcription for browsers and native applications.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./browser": {
+      "types": "./browser/index.d.ts",
+      "default": "./browser/index.js"
+    },
+    "./client": {
+      "types": "./client/index.d.ts",
+      "default": "./client/index.js"
+    },
+    "./protocol": {
+      "types": "./protocol/index.d.ts",
+      "default": "./protocol/index.js"
+    }
+  },
+  "files": [
+    "browser",
+    "client",
+    "protocol",
+    "vendor",
+    "LICENSE",
+    "NOTICE.md",
+    "README.md",
+    "VALIDATION.md"
+  ],
+  "scripts": {
+    "check": "node --check browser/index.js && node --check client/index.js && node --check protocol/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -62,6 +62,30 @@ test("cancel does not emit a final transcript", async () => {
   assert.equal(finalCount, 0);
 });
 
+test("cancel wins a race with stop finalization", async () => {
+  let releaseFinish;
+  class SlowFinishEngine extends FakeEngine {
+    async finish() {
+      return new Promise((resolve) => { releaseFinish = () => resolve("Too late"); });
+    }
+  }
+  const engine = new SlowFinishEngine();
+  const runtime = new BrowserSpeechToTextRuntime({ supported: true, storage: new MemoryStorage(), engineFactory: () => engine });
+  await runtime.prepare();
+  const session = runtime.createSession({ inputMode: "pcm" });
+  const resetCountBeforeSession = engine.resetCount;
+  let finalCount = 0;
+  session.on("final", () => finalCount += 1);
+  await session.start();
+  const stopping = session.stop();
+  await new Promise((resolve) => setImmediate(resolve));
+  const cancelling = session.cancel();
+  releaseFinish();
+  await Promise.all([stopping, cancelling]);
+  assert.equal(finalCount, 0);
+  assert.equal(engine.resetCount, resetCountBeforeSession + 1);
+});
+
 test("finalizes when Parakeet emits an endpoint", async () => {
   class EndpointEngine extends FakeEngine {
     async push() {

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
@@ -25,6 +25,8 @@ const sections = [
   ""
 ];
 const documents = new Map();
+const packageRecords = [];
+const standardDocuments = new Map();
 
 for (const entry of packages) {
   const packageDir = dirname(entry.manifest_path);
@@ -39,16 +41,31 @@ for (const entry of packages) {
     const id = createHash("sha256").update(content).digest("hex").slice(0, 12);
     documentIds.push(id);
     if (!documents.has(id)) documents.set(id, content);
+    const filename = basename(path).toLowerCase();
+    if (/^license[-_.]?mit$/.test(filename)) standardDocuments.set("MIT", id);
+    if (/^license[-_.]?apache(?:[-_.]?2(?:\.0)?)?$/.test(filename)) standardDocuments.set("Apache-2.0", id);
+  }
+  packageRecords.push({ entry, documentIds });
+}
+
+for (const { entry, documentIds: packagedDocumentIds } of packageRecords) {
+  const documentIds = [...packagedDocumentIds];
+  let selectedFallback = null;
+  if (!documentIds.length) {
+    if (/\bMIT\b/.test(entry.license ?? "")) selectedFallback = "MIT";
+    else if (/\bApache-2\.0\b/.test(entry.license ?? "")) selectedFallback = "Apache-2.0";
+    const fallbackId = selectedFallback ? standardDocuments.get(selectedFallback) : null;
+    if (!fallbackId) {
+      throw new Error(`No license document is available for ${entry.name} ${entry.version}.`);
+    }
+    documentIds.push(fallbackId);
   }
   sections.push(`${entry.name} ${entry.version}`);
   sections.push(`  Declared license: ${entry.license ?? "NOASSERTION"}`);
   sections.push(`  Authors: ${entry.authors.join(", ") || "unknown"}`);
   sections.push(`  Source: ${entry.repository ?? entry.homepage ?? entry.source ?? "unknown"}`);
-  if (!licenseFiles.length) {
-    sections.push("  License documents: none packaged; use the declared license and source above.");
-  } else {
-    sections.push(`  License documents: ${documentIds.join(", ")}`);
-  }
+  if (selectedFallback) sections.push(`  Selected fallback license: ${selectedFallback}`);
+  sections.push(`  License documents: ${documentIds.join(", ")}`);
   sections.push("");
 }
 

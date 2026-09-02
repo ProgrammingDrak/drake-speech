@@ -20,6 +20,8 @@ export class NativeSpeechToTextRuntime {
   #listeners = new Map();
   #sequence = 0;
   #session = null;
+  #connectPromise = null;
+  #writeQueue = Promise.resolve();
 
   constructor(options = {}) {
     this.#endpoint = options.endpoint ?? defaultEndpoint();
@@ -69,8 +71,11 @@ export class NativeSpeechToTextRuntime {
 
   async _pushPcm(sessionId, samples) {
     await this.#ensureConnected();
-    await this.#request("pcm", { sessionId, samples: samples.length });
-    await write(this.#socket, encodePcmFrame(samples));
+    return this.#requestOnConnected(
+      "pcm",
+      { sessionId, samples: samples.length },
+      encodePcmFrame(samples)
+    );
   }
 
   _on(type, listener) {
@@ -82,33 +87,58 @@ export class NativeSpeechToTextRuntime {
 
   async #request(type, payload) {
     await this.#ensureConnected();
+    return this.#requestOnConnected(type, payload);
+  }
+
+  async #requestOnConnected(type, payload, followingFrame = null) {
     const id = String(++this.#sequence);
-    const promise = new Promise((resolve, reject) => this.#requests.set(id, { resolve, reject }));
-    await write(this.#socket, encodeJsonFrame({ version: PROTOCOL_VERSION, id, type, payload }));
+    let request;
+    const promise = new Promise((resolve, reject) => {
+      request = { resolve, reject };
+      this.#requests.set(id, request);
+    });
+    const frames = [encodeJsonFrame({ version: PROTOCOL_VERSION, id, type, payload })];
+    if (followingFrame) frames.push(followingFrame);
+    try {
+      await this.#enqueueFrames(frames);
+    } catch (cause) {
+      if (this.#requests.delete(id)) {
+        request.reject(new NativeSpeechError("write_failed", "Could not write to the speech service.", { cause }));
+      }
+    }
     return promise;
   }
 
   async #ensureConnected() {
     if (this.#socket && !this.#socket.destroyed) return;
-    this.#socket = await new Promise((resolve, reject) => {
-      const socket = net.createConnection(this.#endpoint);
-      socket.once("connect", () => resolve(socket));
-      socket.once("error", reject);
-    }).catch((cause) => {
-      throw new NativeSpeechError("service_unavailable", `Cannot connect to Drake Speech at ${this.#endpoint}.`, { cause });
-    });
-    this.#socket.on("data", (chunk) => this.#receive(chunk));
-    this.#socket.on("close", () => {
-      this.#disconnect(new NativeSpeechError("disconnected", "The speech service disconnected."));
-    });
-    await this.#requestWithoutConnect("hello", { client: "drake-speech-client" });
+    if (this.#connectPromise) return this.#connectPromise;
+    this.#connectPromise = (async () => {
+      this.#socket = await new Promise((resolve, reject) => {
+        const socket = net.createConnection(this.#endpoint);
+        socket.once("connect", () => resolve(socket));
+        socket.once("error", reject);
+      }).catch((cause) => {
+        throw new NativeSpeechError("service_unavailable", `Cannot connect to Drake Speech at ${this.#endpoint}.`, { cause });
+      });
+      this.#socket.on("data", (chunk) => this.#receive(chunk));
+      this.#socket.on("close", () => {
+        this.#disconnect(new NativeSpeechError("disconnected", "The speech service disconnected."));
+      });
+      await this.#requestOnConnected("hello", { client: "drake-speech-client" });
+    })();
+    try {
+      await this.#connectPromise;
+    } finally {
+      this.#connectPromise = null;
+    }
   }
 
-  #requestWithoutConnect(type, payload) {
-    const id = String(++this.#sequence);
-    const promise = new Promise((resolve, reject) => this.#requests.set(id, { resolve, reject }));
-    void write(this.#socket, encodeJsonFrame({ version: PROTOCOL_VERSION, id, type, payload })).catch(reject);
-    return promise;
+  #enqueueFrames(frames) {
+    const batch = this.#writeQueue.catch(() => undefined).then(async () => {
+      for (const frame of frames) await write(this.#socket, frame);
+    });
+    this.#writeQueue = batch;
+    return batch;
   }
 
   #receive(chunk) {

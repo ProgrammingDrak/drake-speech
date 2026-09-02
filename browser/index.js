@@ -139,6 +139,7 @@ export class BrowserTranscriptionSession {
   #state = "created";
   #queue = Promise.resolve();
   #stopPromise = null;
+  #cancelPromise = null;
   #pendingSamples = 0;
 
   constructor(engine, micFactory, options, release) {
@@ -216,17 +217,20 @@ export class BrowserTranscriptionSession {
       await this.#mic?.stop();
       this.#mic = null;
       await this.#queue;
+      if (["cancelled", "disposed"].includes(this.#state)) return;
       try {
         const finalText = normalizeTranscript(await this.#engine.finish());
+        if (["cancelled", "disposed"].includes(this.#state)) return;
         if (finalText) this.#text = finalText;
         this.#state = "finished";
         if (this.#text) this.#emit("final", { text: this.#text });
         else this.#emit("silence", { reason: "empty" });
       } catch (cause) {
+        if (["cancelled", "disposed"].includes(this.#state)) return;
         this.#state = "finished";
         this.#emitError(cause, "inference_failed");
       } finally {
-        this.#release();
+        if (this.#state === "finished") this.#release();
       }
     })();
     return this.#stopPromise;
@@ -234,13 +238,18 @@ export class BrowserTranscriptionSession {
 
   async cancel() {
     if (["cancelled", "disposed", "finished"].includes(this.#state)) return;
+    if (this.#cancelPromise) return this.#cancelPromise;
     this.#state = "cancelled";
     this.#stopPolling();
-    await this.#mic?.stop();
-    this.#mic = null;
-    await this.#queue.catch(() => undefined);
-    this.#engine.reset();
-    this.#release();
+    this.#cancelPromise = (async () => {
+      await this.#mic?.stop();
+      this.#mic = null;
+      await this.#queue.catch(() => undefined);
+      await this.#stopPromise?.catch(() => undefined);
+      this.#engine.reset();
+      this.#release();
+    })();
+    return this.#cancelPromise;
   }
 
   async dispose() {

@@ -81,3 +81,12 @@ The planned parakeet-rs commit disappeared from the upstream repository.
 Version one pins the current reachable commit shown above.
 
 FluidVoice and Fluid Intelligence code and assets remain excluded.
+
+## Ship It
+
+| Setting | Value |
+|---|---|
+| Reviewers | `none` |
+| Feature reports | `none` |
+| Feature report channel | `none` |
+| Closing post | `none` |
